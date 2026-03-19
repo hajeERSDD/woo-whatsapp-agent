@@ -68,14 +68,15 @@ async def send_whatsapp_message(phone: str, text: str) -> str | None:
     async with httpx.AsyncClient(timeout=15.0) as client:
         response = await client.post(META_API_URL, headers=HEADERS, json=payload)
 
-    if response.status_code == 200:
-        data = response.json()
-        message_id = data.get("messages", [{}])[0].get("id")
-        return message_id
-    else:
-        print(f"[WhatsApp] Erreur envoi: {response.status_code} — {response.text}")
-        return None
-
+    print(f"[WhatsApp] Status: {response.status_code}")
+print(f"[WhatsApp] Response: {response.text}")
+if response.status_code == 200:
+    data = response.json()
+    message_id = data.get("messages", [{}])[0].get("id")
+    return message_id
+else:
+    print(f"[WhatsApp] Erreur envoi: {response.status_code} — {response.text}")
+    return None
 
 async def send_confirmation_order(
     phone: str,
