@@ -49,13 +49,13 @@ def build_confirmation_message(
 
 
 async def send_whatsapp_message(phone: str, text: str) -> str | None:
-    """
-    Envoie un message WhatsApp texte.
-    Retourne le message_id Meta en cas de succès, None sinon.
-
-    phone: numéro au format E.164 sans espaces ex: +21655123456
-    """
-    phone_clean = phone.replace(" ", "").replace("-", "")
+    phone_clean = phone.replace(" ", "").replace("-", "").replace("+", "")
+    if phone_clean.startswith("00"):
+        phone_clean = phone_clean[2:]
+    if phone_clean.startswith("0"):
+        phone_clean = "216" + phone_clean[1:]
+    if not phone_clean.startswith("216"):
+        phone_clean = "216" + phone_clean
 
     payload = {
         "messaging_product": "whatsapp",
@@ -68,15 +68,17 @@ async def send_whatsapp_message(phone: str, text: str) -> str | None:
     async with httpx.AsyncClient(timeout=15.0) as client:
         response = await client.post(META_API_URL, headers=HEADERS, json=payload)
 
+    print(f"[WhatsApp] Numero: {phone_clean}")
     print(f"[WhatsApp] Status: {response.status_code}")
-print(f"[WhatsApp] Response: {response.text}")
-if response.status_code == 200:
-    data = response.json()
-    message_id = data.get("messages", [{}])[0].get("id")
-    return message_id
-else:
-    print(f"[WhatsApp] Erreur envoi: {response.status_code} — {response.text}")
-    return None
+    print(f"[WhatsApp] Response: {response.text}")
+
+    if response.status_code == 200:
+        data = response.json()
+        message_id = data.get("messages", [{}])[0].get("id")
+        return message_id
+    else:
+        print(f"[WhatsApp] Erreur: {response.status_code} - {response.text}")
+        return None
 
 async def send_confirmation_order(
     phone: str,
