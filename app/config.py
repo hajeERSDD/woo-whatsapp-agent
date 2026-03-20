@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     wc_status_confirmed: str = "processing"
     wc_status_cancelled: str = "cancelled"
     auto_cancel_hours: int = 24
+    anthropic_api_key: str = ""
+
 
     # App
     secret_key: str = "dev-secret"
