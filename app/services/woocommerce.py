@@ -43,6 +43,9 @@ class WooCommerceService:
             response = await client.post(url, json=payload, auth=self.auth)
             response.raise_for_status()
             return response.json()
+
+
+            
             async def get_products(self) -> list:
         """Récupère les produits de la boutique WooCommerce."""
         url = f"{self.base_url}/products"
