@@ -1,9 +1,4 @@
-"""
-Service Meta WhatsApp Cloud API
-Envoi de messages de confirmation de commande
-"""
 import httpx
-import json
 from app.config import get_settings
 
 settings = get_settings()
@@ -16,39 +11,89 @@ HEADERS = {
     "Content-Type": "application/json",
 }
 
+ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
 
-def build_confirmation_message(
-    customer_name: str,
-    order_id: int,
-    items: list[dict],
-    total: float,
-    currency: str = "TND",
-) -> str:
-    """
-    Construit le message WhatsApp de confirmation de commande.
-    Utilise le format texte simple (pas de template) pour les tests.
-    En production, utiliser un Template approuvé Meta.
-    """
+
+def build_confirmation_message(customer_name, order_id, items, total, currency="TND"):
     first_name = customer_name.split()[0] if customer_name else "client"
-    items_text = "\n".join(
-        [f"  • {item.get('name', '')} x{item.get('quantity', 1)}" for item in items]
+    items_text = "\n".join([f"  • {i.get('name','')} x{i.get('quantity',1)}" for i in items])
+    return (
+        f"Bonjour {first_name} !\n\n"
+        f"Votre commande *#{order_id}* a été reçue.\n\n"
+        f"Articles :\n{items_text}\n\n"
+        f"Total : {total:.2f} {currency}\n\n"
+        f"Confirmez votre commande :\n"
+        f"OUI pour confirmer\n"
+        f"NON pour annuler\n\n"
+        f"Sans réponse dans 24h, la commande sera annulée.\n\n"
+        f"Merci - HM Social Boost"
     )
 
-    message = (
-        f"🛍️ Bonjour {first_name} !\n\n"
-        f"Votre commande *#{order_id}* a été reçue sur notre boutique.\n\n"
-        f"📦 *Articles commandés :*\n{items_text}\n\n"
-        f"💰 *Total : {total:.2f} {currency}*\n\n"
-        f"Merci de confirmer votre commande en répondant :\n\n"
-        f"✅ Répondez *OUI* pour confirmer\n"
-        f"❌ Répondez *NON* pour annuler\n\n"
-        f"_Vous avez 24h pour répondre. Sans réponse, la commande sera annulée automatiquement._\n\n"
-        f"Merci de votre confiance — HM Social Boost 🙏"
-    )
-    return message
+
+async def ask_claude(customer_message, order_info, products_info, conversation_history):
+    system = f"""Tu es l'assistant intelligent de HM Social Boost, une boutique en ligne tunisienne.
+Tu communiques avec les clients via WhatsApp après une commande.
+
+COMMANDE DU CLIENT :
+{order_info}
+
+PRODUITS DISPONIBLES :
+{products_info}
+
+INFOS LIVRAISON :
+- Délai standard : 24-48h après confirmation
+- Livraison partout en Tunisie
+- Paiement à la livraison (cash on delivery)
+
+RÈGLES :
+- Réponds dans la même langue que le client (français, arabe, anglais)
+- Messages courts et clairs (max 4 lignes) adaptés à WhatsApp
+- Si le client confirme la commande → termine par INTENT:confirm
+- Si le client annule la commande → termine par INTENT:cancel
+- Si c'est une question → réponds et termine par INTENT:question
+- Ne jamais inventer des infos produits
+- Être chaleureux et professionnel"""
+
+    messages = conversation_history + [{"role": "user", "content": customer_message}]
+
+    payload = {
+        "model": "claude-sonnet-4-20250514",
+        "max_tokens": 300,
+        "system": system,
+        "messages": messages,
+    }
+
+    headers = {
+        "x-api-key": settings.anthropic_api_key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+    }
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.post(ANTHROPIC_API_URL, headers=headers, json=payload)
+
+    if response.status_code == 200:
+        data = response.json()
+        return data["content"][0]["text"]
+    else:
+        print(f"[Claude] Erreur: {response.status_code} — {response.text}")
+        return None
 
 
-async def send_whatsapp_message(phone: str, text: str) -> str | None:
+def detect_intent_from_response(claude_response):
+    if "INTENT:confirm" in claude_response:
+        return "confirm"
+    elif "INTENT:cancel" in claude_response:
+        return "cancel"
+    else:
+        return "question"
+
+
+def clean_response(claude_response):
+    return claude_response.replace("INTENT:confirm", "").replace("INTENT:cancel", "").replace("INTENT:question", "").strip()
+
+
+async def send_whatsapp_message(phone: str, text: str):
     phone_clean = phone.replace(" ", "").replace("-", "").replace("+", "")
     if phone_clean.startswith("00"):
         phone_clean = phone_clean[2:]
@@ -74,41 +119,27 @@ async def send_whatsapp_message(phone: str, text: str) -> str | None:
 
     if response.status_code == 200:
         data = response.json()
-        message_id = data.get("messages", [{}])[0].get("id")
-        return message_id
+        return data.get("messages", [{}])[0].get("id")
     else:
-        print(f"[WhatsApp] Erreur: {response.status_code} - {response.text}")
+        print(f"[WhatsApp] Erreur: {response.status_code} — {response.text}")
         return None
 
-async def send_confirmation_order(
-    phone: str,
-    customer_name: str,
-    order_id: int,
-    items: list[dict],
-    total: float,
-    currency: str = "TND",
-) -> str | None:
-    """Construit et envoie le message de confirmation de commande."""
+
+async def send_confirmation_order(phone, customer_name, order_id, items, total, currency="TND"):
     text = build_confirmation_message(customer_name, order_id, items, total, currency)
     return await send_whatsapp_message(phone, text)
 
 
-async def send_status_update(phone: str, customer_name: str, status: str, order_id: int):
-    """Envoie une notification après confirmation ou annulation."""
+async def send_status_update(phone, customer_name, status, order_id):
     first_name = customer_name.split()[0] if customer_name else "client"
-
     if status == "confirmed":
         text = (
-            f"✅ Parfait {first_name} ! Votre commande *#{order_id}* est confirmée.\n\n"
-            f"Nous préparons votre colis et vous tiendrons informé(e) de l'expédition.\n\n"
-            f"Merci — HM Social Boost 🙏"
+            f"Parfait {first_name} ! Commande #{order_id} confirmée.\n\n"
+            f"Livraison dans 24-48h. Merci - HM Social Boost"
         )
     else:
         text = (
-            f"❌ Votre commande *#{order_id}* a bien été annulée {first_name}.\n\n"
-            f"Si c'est une erreur ou si vous souhaitez repasser une commande, "
-            f"n'hésitez pas à nous contacter.\n\n"
-            f"À bientôt — HM Social Boost"
+            f"Commande #{order_id} annulée {first_name}.\n\n"
+            f"N'hésitez pas à recommander. A bientôt - HM Social Boost"
         )
-
     await send_whatsapp_message(phone, text)
