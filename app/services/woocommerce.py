@@ -44,9 +44,8 @@ class WooCommerceService:
             response.raise_for_status()
             return response.json()
 
-
             
-            async def get_products(self) -> list:
+    async def get_products(self) -> list:
         """Récupère les produits de la boutique WooCommerce."""
         url = f"{self.base_url}/products"
         params = {"per_page": 20, "status": "publish"}
@@ -55,6 +54,5 @@ class WooCommerceService:
             response.raise_for_status()
             return response.json()
             
-
 
 woocommerce_service = WooCommerceService()
