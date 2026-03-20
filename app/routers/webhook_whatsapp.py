@@ -70,4 +70,4 @@ async def whatsapp_incoming(
         .where(Order.status == OrderStatus.SENT)
         .order_by(Order.created_at.desc())
     )
-    order = res
+    order = result.scalar_one_or_none()
